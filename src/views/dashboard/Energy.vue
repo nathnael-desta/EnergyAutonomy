@@ -1,37 +1,18 @@
 <template>
-  <div>
+  <div class="space-y-6">
     <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Energy Dashboard</h1>
 
-    <!-- Temporary verification panel -->
-    <div class="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Airtable ↔ Dashboard check</h2>
-        <button
-          class="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white"
-          @click="loading=true; fetchDecisions(32).then(r => decisions.value = r).catch(e => error.value = e?.message || String(e)).finally(()=>loading=false)"
-        >
-          Refresh
-        </button>
-      </div>
-
-      <div v-if="loading" class="mt-3 text-gray-500">Loading…</div>
-      <div v-else-if="error" class="mt-3 text-red-600">Error: {{ error }}</div>
-
-      <div v-else class="mt-4 space-y-2">
-        <div v-if="latest" class="text-sm">
-          <div><b>Latest:</b> {{ new Date(latest.time_iso).toLocaleString() }}</div>
-          <div><b>Action:</b> {{ latest.action }}</div>
-          <div><b>Why:</b> {{ latest.rationale }}</div>
-          <div class="flex gap-4 mt-1 text-gray-600">
-            <span>Price: €{{ (latest.price_eur_kwh ?? 0).toFixed(5) }}/kWh</span>
-            <span>Irr: {{ latest.irradiance_wm2 ?? '—' }} W/m²</span>
-            <span>Trend: {{ latest.cost_trend }}</span>
-            <span>Stress: {{ latest.grid_stress }}</span>
-          </div>
-        </div>
-        <div v-else class="text-gray-500">No records found.</div>
-      </div>
+    <!-- Error / Loading -->
+    <div v-if="error" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+      {{ error }}
     </div>
+
+    <div v-if="loading && !latest" class="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-600">
+      Loading latest decision…
+    </div>
+
+    <!-- Decision card -->
+    <DecisionCard v-if="latest" :record="latest" :loading="loading" />
 
     <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
       <DataCard title="Grid Status" :value="gridStatus" subtitle="Connected to the main grid" />
@@ -49,6 +30,18 @@
         <ApplianceControl :appliances="appliances" @toggle="handleToggleAppliance" />
       </div>
     </div>
+
+    <!-- (We’ll add charts below in the next step) -->
+    <div class="rounded-xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+      Charts placeholder — we’ll wire Price vs Solar next.
+      <button
+        class="ml-3 rounded-md bg-gray-900 px-3 py-1.5 text-white"
+        @click="load"
+        :disabled="loading"
+      >
+        {{ loading ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -57,6 +50,7 @@ import { ref, onMounted, computed } from 'vue'
 import DataCard from '@/components/DataCard.vue'
 import EnergyChart from '@/components/EnergyChart.vue'
 import ApplianceControl from '@/components/ApplianceControl.vue'
+import DecisionCard from '@/components/DecisionCard.vue'
 import { getEnergyData, toggleAppliance } from '@/services/energyService.js'
 import { fetchDecisions } from '@/services/airtable.js';
 
@@ -66,6 +60,7 @@ export default {
     DataCard,
     EnergyChart,
     ApplianceControl,
+    DecisionCard,
   },
   setup() {
     const gridStatus = ref('Offline');
@@ -107,17 +102,22 @@ export default {
       await fetchData();
     };
 
-    onMounted(async () => {
-      fetchData();
-      setInterval(fetchData, 5000); // Refresh every 5 seconds
-
+    async function load() {
+      loading.value = true;
+      error.value = '';
       try {
-        decisions.value = await fetchDecisions(32); // smaller initial load
+        decisions.value = await fetchDecisions(96);
       } catch (e) {
         error.value = e?.message || String(e);
       } finally {
         loading.value = false;
       }
+    }
+
+    onMounted(() => {
+      fetchData();
+      setInterval(fetchData, 5000); // Refresh every 5 seconds
+      load();
     });
 
     const latest = computed(() => decisions.value?.[0] || null);
@@ -135,7 +135,7 @@ export default {
       error,
       decisions,
       latest,
-      fetchDecisions,
+      load,
     };
   }
 }
