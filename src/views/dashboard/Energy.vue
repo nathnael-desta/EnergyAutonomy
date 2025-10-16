@@ -53,6 +53,42 @@
       />
       <div v-else class="text-sm text-gray-500">No chartable data yet.</div>
     </div>
+
+    <!-- NEW: Actions Over Time chart -->
+    <div class="grid grid-cols-1 gap-8 md:grid-cols-2">
+      <!-- Actions Over Time -->
+      <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-base font-semibold">Actions Over Time</h2>
+          <button
+            class="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white"
+            @click="load"
+            :disabled="loading"
+          >
+            {{ loading ? 'Refreshing…' : 'Refresh' }}
+          </button>
+        </div>
+
+        <apexchart
+          v-if="actionSeries.some(s => s.data.length)"
+          type="scatter"
+          height="280"
+          :options="actionOptions"
+          :series="actionSeries"
+        />
+        <div v-else class="text-sm text-gray-500">No action history yet.</div>
+      </div>
+    </div>
+
+    <!-- Recent Decisions table -->
+    <div class="mt-8">
+      <RecentDecisionsTable :items="decisions" :limit="20" />
+    </div>
+
+    <!-- Bottom Row -->
+    <div class="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-3">
+      <!-- Additional content can go here -->
+    </div>
   </div>
 </template>
 
@@ -62,8 +98,9 @@ import DataCard from '@/components/DataCard.vue'
 import EnergyChart from '@/components/EnergyChart.vue'
 import ApplianceControl from '@/components/ApplianceControl.vue'
 import DecisionCard from '@/components/DecisionCard.vue'
-import { getEnergyData, toggleAppliance } from '@/services/energyService.js'
-import { fetchDecisions } from '@/services/airtable.js';
+import RecentDecisionsTable from '@/components/RecentDecisionsTable.vue'
+import { getEnergyData, toggleAppliance } from '@/services/energyService';
+import { fetchDecisions } from '@/services/airtable';
 
 export default {
   name: 'EnergyDashboard',
@@ -72,6 +109,7 @@ export default {
     EnergyChart,
     ApplianceControl,
     DecisionCard,
+    RecentDecisionsTable,
   },
   setup() {
     const gridStatus = ref('Offline');
@@ -182,6 +220,63 @@ export default {
       noData: { text: 'No data' },
     }))
 
+    // ----- Actions Over Time (scatter lanes) -----
+    const ACTION_META = [
+      { key: 'DISCHARGE_BATTERY_TO_SUPPLY_LOAD', label: 'Discharge to Load', y: 5, color: '#ef4444' }, // red
+      { key: 'CHARGE_BATTERY_FROM_GRID',         label: 'Charge from Grid',  y: 4, color: '#3b82f6' }, // blue
+      { key: 'USE_GRID_NORMALLY',                label: 'Use Grid Normally', y: 3, color: '#64748b' }, // slate
+      { key: 'PRIORITIZE_LOCAL_GENERATION',      label: 'Prioritize Local Gen', y: 2, color: '#22c55e' }, // green
+      { key: 'EXPORT_EXCESS_TO_GRID',            label: 'Export to Grid',    y: 1, color: '#f59e0b' }, // amber
+    ];
+
+    // map action key -> meta for quick lookup
+    const actionIndexByKey = ACTION_META.reduce((m, a) => (m[a.key] = a, m), {});
+
+    const actionSeries = computed(() => {
+      // Build one scatter series per action, placing points on its lane (constant y)
+      return ACTION_META.map(meta => {
+        const pts = (chronological.value || [])
+          .filter(r => r.action === meta.key && r.time_iso)
+          .map(r => [ new Date(r.time_iso).getTime(), meta.y ]);
+        return { name: meta.label, data: pts };
+      });
+    });
+
+    const actionOptions = computed(() => ({
+      chart: { type: 'scatter', toolbar: { show: false } },
+      markers: { size: 5, strokeWidth: 0 },
+      colors: ACTION_META.map(a => a.color),
+      xaxis: {
+        type: 'datetime',
+        labels: { datetimeUTC: false },
+        tooltip: { enabled: true },
+      },
+      yaxis: {
+        min: 0, max: 6, tickAmount: 5,
+        labels: {
+          formatter: (val) => {
+            const lane = Math.round(val);
+            const found = ACTION_META.find(a => a.y === lane);
+            return found ? found.label : '';
+          }
+        }
+      },
+      tooltip: {
+        shared: false,
+        x: { format: 'yyyy-MM-dd HH:mm' },
+        y: {
+          formatter: (val, opts) => {
+            // Show the action label in tooltip
+            const seriesIdx = opts.seriesIndex;
+            return ACTION_META[seriesIdx]?.label || '';
+          }
+        }
+      },
+      legend: { show: true },
+      grid: { xaxis: { lines: { show: true } }, yaxis: { lines: { show: true } } },
+      noData: { text: 'No actions to display' },
+    }));
+
     return {
       gridStatus,
       batteryLevel,
@@ -198,6 +293,9 @@ export default {
       load,
       priceSolarSeries,
       priceSolarOptions,
+
+      actionSeries,
+      actionOptions,
     };
   }
 }
