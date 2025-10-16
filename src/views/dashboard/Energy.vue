@@ -1,26 +1,37 @@
 <template>
-  <div class="space-y-6">
-    <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Energy Dashboard</h1>
+  <div class="p-4 sm:p-6">
+    <div class="mb-6 flex items-center justify-between">
+      <h1 class="text-2xl font-bold">{{ VIEW_LABEL }}</h1>
+      <button
+        class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+        @click="refresh"
+        :disabled="loading"
+      >
+        {{ loading ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
 
-    <!-- Error / Loading -->
-    <div v-if="error" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+    <!-- Error -->
+    <div v-if="error" class="mb-6 rounded-lg bg-red-100 p-4 text-sm text-red-700">
       {{ error }}
     </div>
 
-    <div v-if="loading && !latest" class="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-600">
-      Loading latest decision…
+    <!-- Local Energy Data -->
+    <div v-if="loadingLocal" class="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-600">
+      Loading local energy data…
+    </div>
+
+    <div v-else-if="localEnergy" class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+      <DataCard title="Grid Status" :value="localEnergy.gridStatus" subtitle="Connected to the main grid" />
+      <DataCard title="Battery Level" :value="localEnergy.batteryLevel + '%'" subtitle="Charged" />
+      <DataCard title="Energy Consumption" :value="localEnergy.energyConsumption + ' kWh'" subtitle="Last hour" />
+      <DataCard title="Solar Generation" :value="localEnergy.solarGeneration + ' kWh'" subtitle="Current production" />
+      <DataCard title="Grid Price" :value="'$' + localEnergy.gridPrice" subtitle="per kWh" />
     </div>
 
     <!-- Decision card -->
     <DecisionCard v-if="latest" :record="latest" :loading="loading" />
 
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
-      <DataCard title="Grid Status" :value="gridStatus" subtitle="Connected to the main grid" />
-      <DataCard title="Battery Level" :value="batteryLevel + '%'" subtitle="Charged" />
-      <DataCard title="Energy Consumption" :value="energyConsumption + ' kWh'" subtitle="Last hour" />
-      <DataCard title="Solar Generation" :value="solarGeneration + ' kWh'" subtitle="Current production" />
-      <DataCard title="Grid Price" :value="'$' + gridPrice" subtitle="per kWh" />
-    </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
       <div>
         <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Energy Consumption</h2>
@@ -32,41 +43,27 @@
     </div>
 
     <!-- NEW: Price vs Solar chart -->
-    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div class="mb-3 flex items-center justify-between">
-        <h2 class="text-base font-semibold">Price vs Solar (last 96 records)</h2>
-        <button
-          class="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white"
-          @click="load"
-          :disabled="loading"
-        >
-          {{ loading ? 'Refreshing…' : 'Refresh' }}
-        </button>
+    <div class="mt-8 grid grid-cols-1 gap-8 md:grid-cols-2">
+      <!-- Price vs Solar -->
+      <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-base font-semibold">Price vs Solar</h2>
+        </div>
+
+        <apexchart
+          v-if="priceSolarSeries.some(s => s.data.length)"
+          type="line"
+          height="340"
+          :options="priceSolarOptions"
+          :series="priceSolarSeries"
+        />
+        <div v-else class="text-sm text-gray-500">No solar or price data yet.</div>
       </div>
 
-      <apexchart
-        v-if="priceSolarSeries[0].data.length || priceSolarSeries[1].data.length"
-        type="line"
-        height="340"
-        :options="priceSolarOptions"
-        :series="priceSolarSeries"
-      />
-      <div v-else class="text-sm text-gray-500">No chartable data yet.</div>
-    </div>
-
-    <!-- NEW: Actions Over Time chart -->
-    <div class="grid grid-cols-1 gap-8 md:grid-cols-2">
       <!-- Actions Over Time -->
       <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <div class="mb-3 flex items-center justify-between">
           <h2 class="text-base font-semibold">Actions Over Time</h2>
-          <button
-            class="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white"
-            @click="load"
-            :disabled="loading"
-          >
-            {{ loading ? 'Refreshing…' : 'Refresh' }}
-          </button>
         </div>
 
         <apexchart
@@ -93,88 +90,94 @@
 </template>
 
 <script>
-import { ref, onMounted, computed } from 'vue'
-import DataCard from '@/components/DataCard.vue'
-import EnergyChart from '@/components/EnergyChart.vue'
-import ApplianceControl from '@/components/ApplianceControl.vue'
-import DecisionCard from '@/components/DecisionCard.vue'
-import RecentDecisionsTable from '@/components/RecentDecisionsTable.vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getEnergyData, toggleAppliance } from '@/services/energyService';
 import { fetchDecisions } from '@/services/airtable';
+import DecisionCard from '@/components/DecisionCard.vue';
+import RecentDecisionsTable from '@/components/RecentDecisionsTable.vue';
+import DataCard from '@/components/DataCard.vue';
+import ApplianceControl from '@/components/ApplianceControl.vue';
+
+const VIEW_LABEL = 'Energy';
 
 export default {
   name: 'EnergyDashboard',
   components: {
-    DataCard,
-    EnergyChart,
-    ApplianceControl,
     DecisionCard,
     RecentDecisionsTable,
+    DataCard,
+    ApplianceControl,
   },
   setup() {
-    const gridStatus = ref('Offline');
-    const batteryLevel = ref(0);
-    const energyConsumption = ref(0);
-    const consumptionHistory = ref([]);
-    const solarGeneration = ref(0);
-    const gridPrice = ref(0);
-    const appliances = ref([]);
+    // ----- Local Energy State -----
+    const localEnergy = ref(null);
+    const loadingLocal = ref(false);
+    const errorLocal = ref(null);
 
-    const loading = ref(true);
-    const error = ref('');
-    const decisions = ref([]);
-
-    const chartData = computed(() => ({
-      labels: consumptionHistory.value.map((_, i) => `T-${consumptionHistory.value.length - i - 1}`),
-      datasets: [
-        {
-          label: 'Energy Consumption (kWh)',
-          backgroundColor: '#f87979',
-          data: consumptionHistory.value,
-        },
-      ],
-    }));
-
-    const fetchData = async () => {
-      const data = await getEnergyData();
-      gridStatus.value = data.gridStatus;
-      batteryLevel.value = data.batteryLevel;
-      energyConsumption.value = data.energyConsumption;
-      consumptionHistory.value = data.consumptionHistory;
-      solarGeneration.value = data.solarGeneration;
-      gridPrice.value = data.gridPrice;
-      appliances.value = data.appliances;
-    };
-
-    const handleToggleAppliance = async (applianceId) => {
-      await toggleAppliance(applianceId);
-      await fetchData();
-    };
-
-    async function load() {
-      loading.value = true;
-      error.value = '';
+    async function loadLocalEnergy() {
+      loadingLocal.value = true;
+      errorLocal.value = null;
       try {
-        decisions.value = await fetchDecisions(96);
+        const data = await getEnergyData();
+        localEnergy.value = data;
       } catch (e) {
-        error.value = e?.message || String(e);
+        errorLocal.value = e.message;
+      } finally {
+        loadingLocal.value = false;
+      }
+    }
+
+    function handleToggleAppliance(appliance) {
+      toggleAppliance(appliance.id)
+        .then(() => {
+          // Optimistically update local state
+          appliance.enabled = !appliance.enabled;
+        })
+        .catch(e => {
+          errorLocal.value = `Failed to toggle ${appliance.name}: ${e.message}`;
+        });
+    }
+
+    // ----- Decision State (Airtable) -----
+    const decisions = ref([]);
+    const loading = ref(false);
+    const error = ref(null);
+
+    async function loadDecisions() {
+      loading.value = true;
+      error.value = null;
+      try {
+        // fetch last 50 for chart density
+        decisions.value = await fetchDecisions(50);
+      } catch (e) {
+        error.value = e.message;
       } finally {
         loading.value = false;
       }
     }
 
-    onMounted(() => {
-      fetchData();
-      setInterval(fetchData, 5000); // Refresh every 5 seconds
-      load();
-    });
+    // ----- Combined Refresh -----
+    async function refresh() {
+      await Promise.all([loadDecisions(), loadLocalEnergy()]);
+    }
 
+    // ----- Computed Properties -----
     const latest = computed(() => decisions.value?.[0] || null);
 
-    // --- NEW: build series in chronological order (oldest -> newest)
+    const chartData = computed(() => ({
+      labels: localEnergy.value?.consumptionHistory.map((_, i) => `T-${localEnergy.value.consumptionHistory.length - i - 1}`) || [],
+      datasets: [
+        {
+          label: 'Energy Consumption (kWh)',
+          backgroundColor: '#f87979',
+          data: localEnergy.value?.consumptionHistory || [],
+        },
+      ],
+    }));
+
     const chronological = computed(() => {
-      // decisions[0] is newest (sorted desc). Reverse for time-ascending charts.
-      return [...(decisions.value || [])].reverse()
+      // reverse a copy
+      return [...(decisions.value || [])].reverse();
     })
 
     const pricePoints = computed(() =>
@@ -277,26 +280,39 @@ export default {
       noData: { text: 'No actions to display' },
     }));
 
+
+    // ----- Lifecycle & Auto-Refresh -----
+    let refreshInterval = null;
+    onMounted(() => {
+      refresh();
+      refreshInterval = setInterval(refresh, 10 * 60 * 1000); // 10 minutes
+    });
+    onUnmounted(() => {
+      clearInterval(refreshInterval);
+    });
+
+    // ----- Exports for template -----
     return {
-      gridStatus,
-      batteryLevel,
-      energyConsumption,
-      solarGeneration,
-      gridPrice,
-      appliances,
-      chartData,
+      VIEW_LABEL,
+
+      // local energy
+      localEnergy,
+      loadingLocal,
+      errorLocal,
       handleToggleAppliance,
+      decisions,
       loading,
       error,
-      decisions,
+      refresh,
       latest,
-      load,
+
+      // charts
       priceSolarSeries,
       priceSolarOptions,
 
       actionSeries,
       actionOptions,
     };
-  }
-}
+  },
+};
 </script>
