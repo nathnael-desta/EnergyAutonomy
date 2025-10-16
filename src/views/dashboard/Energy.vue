@@ -1,5 +1,6 @@
 <template>
-  <div class="p-4 sm:p-6">
+  <!-- add left margin on large screens so content sits to the right of the fixed sidebar -->
+  <div class="p-4 sm:p-6 lg:ml-64">
     <div class="mb-6 flex items-center justify-between">
       <h1 class="text-2xl font-bold">{{ VIEW_LABEL }}</h1>
       <button
