@@ -31,16 +31,27 @@
       </div>
     </div>
 
-    <!-- (We’ll add charts below in the next step) -->
-    <div class="rounded-xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
-      Charts placeholder — we’ll wire Price vs Solar next.
-      <button
-        class="ml-3 rounded-md bg-gray-900 px-3 py-1.5 text-white"
-        @click="load"
-        :disabled="loading"
-      >
-        {{ loading ? 'Refreshing…' : 'Refresh' }}
-      </button>
+    <!-- NEW: Price vs Solar chart -->
+    <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-base font-semibold">Price vs Solar (last 96 records)</h2>
+        <button
+          class="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white"
+          @click="load"
+          :disabled="loading"
+        >
+          {{ loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </div>
+
+      <apexchart
+        v-if="priceSolarSeries[0].data.length || priceSolarSeries[1].data.length"
+        type="line"
+        height="340"
+        :options="priceSolarOptions"
+        :series="priceSolarSeries"
+      />
+      <div v-else class="text-sm text-gray-500">No chartable data yet.</div>
     </div>
   </div>
 </template>
@@ -122,6 +133,55 @@ export default {
 
     const latest = computed(() => decisions.value?.[0] || null);
 
+    // --- NEW: build series in chronological order (oldest -> newest)
+    const chronological = computed(() => {
+      // decisions[0] is newest (sorted desc). Reverse for time-ascending charts.
+      return [...(decisions.value || [])].reverse()
+    })
+
+    const pricePoints = computed(() =>
+      chronological.value
+        .filter(r => Number.isFinite(Number(r.price_eur_kwh)) && r.time_iso)
+        .map(r => [new Date(r.time_iso).getTime(), Number(r.price_eur_kwh)])
+    )
+
+    const irrPoints = computed(() =>
+      chronological.value
+        .filter(r => r.time_iso && (r.irradiance_wm2 === 0 || Number.isFinite(Number(r.irradiance_wm2))))
+        .map(r => [new Date(r.time_iso).getTime(), Number(r.irradiance_wm2 ?? 0)])
+    )
+
+    const priceSolarSeries = computed(() => ([
+      { name: 'Price (€/kWh)', type: 'line', data: pricePoints.value },
+      { name: 'Irradiance (W/m²)', type: 'line', data: irrPoints.value },
+    ]))
+
+    const priceSolarOptions = computed(() => ({
+      chart: { type: 'line', toolbar: { show: false } },
+      stroke: { width: [2, 2], curve: 'smooth' },
+      colors: ['#2563eb', '#f59e0b'], // optional: blue price, amber irradiance
+      xaxis: {
+        type: 'datetime',
+        labels: { datetimeUTC: false }, // show in local time
+      },
+      yaxis: [
+        {
+          title: { text: '€/kWh' },
+          decimalsInFloat: 5,
+        },
+        {
+          opposite: true,
+          title: { text: 'W/m²' },
+        },
+      ],
+      tooltip: {
+        shared: true,
+        x: { format: 'yyyy-MM-dd HH:mm' },
+      },
+      legend: { show: true },
+      noData: { text: 'No data' },
+    }))
+
     return {
       gridStatus,
       batteryLevel,
@@ -136,6 +196,8 @@ export default {
       decisions,
       latest,
       load,
+      priceSolarSeries,
+      priceSolarOptions,
     };
   }
 }
