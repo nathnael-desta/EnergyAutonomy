@@ -17,7 +17,7 @@
       </div>
     </div>
 
-    <div class="flex flex-col flex-grow bg-gray-200 lg:ml-64">
+    <div class="flex flex-col flex-grow bg-gray-200 ">
       <!-- Mobile toggle button -->
       <button
         class="lg:hidden absolute left-4 top-4 z-50 inline-flex items-center rounded-md bg-white p-2 text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
@@ -32,9 +32,13 @@
 
       <the-header />
 
-      <div class="mb-auto">
-        <router-view />
-      </div>
+      <!-- Main content: make it fluid on large screens so it stretches instead of staying constrained -->
+      <main class="mb-auto w-full">
+        <!-- inner wrapper controls padding but allows full-width growth on large screens -->
+        <div class="w-full max-w-full px-4 sm:px-6 lg:px-8">
+          <router-view />
+        </div>
+      </main>
 
     </div>
   </div>

@@ -34,8 +34,8 @@
     <DecisionCard v-if="latest" :record="latest" :loading="loading" />
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
-      <div>
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Energy Consumption</h2>
+      <div class="bg-white dark:bg-gray-800 shadow-lg rounded-lg p-4">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Energy Consumption</h3>
         <EnergyChart :chartData="chartData" />
       </div>
       <div>
